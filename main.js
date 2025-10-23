@@ -1,167 +1,101 @@
 "use strict";
 
-/*
- * Created with @iobroker/create-adapter v2.6.5
- */
-
-// The adapter-core module gives you access to the core ioBroker functions
-// you need to create an adapter
 const utils = require("@iobroker/adapter-core");
+const axios = require("axios");
 
-// Load your modules here, e.g.:
-// const fs = require("fs");
+class SpaceWeatherAdapter extends utils.Adapter {
 
-class Spaceweather extends utils.Adapter {
+    constructor(options) {
+        super({
+            ...options,
+            name: "spaceweather",
+        });
+        this.on("ready", this.onReady.bind(this));
+        this.on("unload", this.onUnload.bind(this));
+        this.timer = null;
+    }
 
-	/**
-	 * @param {Partial<utils.AdapterOptions>} [options={}]
-	 */
-	constructor(options) {
-		super({
-			...options,
-			name: "spaceweather",
-		});
-		this.on("ready", this.onReady.bind(this));
-		this.on("stateChange", this.onStateChange.bind(this));
-		// this.on("objectChange", this.onObjectChange.bind(this));
-		// this.on("message", this.onMessage.bind(this));
-		this.on("unload", this.onUnload.bind(this));
-	}
+    async onReady() {
+        this.log.info("SpaceWeather Adapter gestartet");
+        await this.ensureObjects(); // Erstellt die Datenpunkte
+        await this.fetchData(); // Initialer Abruf
+        // Update alle 5 Minuten
+        this.timer = setInterval(() => this.fetchData(), 5 * 60 * 1000);
+    }
 
-	/**
-	 * Is called when databases are connected and adapter received configuration.
-	 */
-	async onReady() {
-		// Initialize your adapter here
+    async ensureObjects() {
+        const states = {
+            "solarwind.speed": { name: "Solarwind Geschwindigkeit", unit: "km/s" },
+            "solarwind.flow_angle": { name: "Sonnenwind Flusswinkel", unit: "°" },
+            "solarwind.proton_flux": { name: "Protonenfluss", unit: "pfu" },
+            "solarwind.density": { name: "Solarwind Dichte", unit: "cm^-3" },
+            "solarwind.temperature": { name: "Solarwind Temperatur", unit: "K" },
+            "magnetosphere.bx": { name: "Magnetfeld Bx", unit: "nT" },
+            "magnetosphere.by": { name: "Magnetfeld By", unit: "nT" },
+            "magnetosphere.bz": { name: "Magnetfeld Bz", unit: "nT" },
+            "magnetosphere.bt": { name: "Magnetfeld Bt", unit: "nT" }
+        };
 
-		// The adapters config (in the instance object everything under the attribute "native") is accessible via
-		// this.config:
-		this.log.info("config option1: " + this.config.option1);
-		this.log.info("config option2: " + this.config.option2);
+        for (const [id, meta] of Object.entries(states)) {
+            await this.setObjectNotExistsAsync(id, {
+                type: "state",
+                common: {
+                    name: meta.name,
+                    type: "number",
+                    role: "value",
+                    unit: meta.unit,
+                    read: true,
+                    write: false
+                },
+                native: {}
+            });
+        }
+    }
 
-		/*
-		For every state in the system there has to be also an object of type state
-		Here a simple template for a boolean variable named "testVariable"
-		Because every adapter instance uses its own unique namespace variable names can't collide with other adapters variables
-		*/
-		await this.setObjectNotExistsAsync("testVariable", {
-			type: "state",
-			common: {
-				name: "testVariable",
-				type: "boolean",
-				role: "indicator",
-				read: true,
-				write: true,
-			},
-			native: {},
-		});
+    async fetchData() {
+        try {
+            const url = "https://services.swpc.noaa.gov/json/solar-wind.json";
+            const response = await axios.get(url);
 
-		// In order to get state updates, you need to subscribe to them. The following line adds a subscription for our variable we have created above.
-		this.subscribeStates("testVariable");
-		// You can also add a subscription for multiple states. The following line watches all states starting with "lights."
-		// this.subscribeStates("lights.*");
-		// Or, if you really must, you can also watch all states. Don't do this if you don't need to. Otherwise this will cause a lot of unnecessary load on the system:
-		// this.subscribeStates("*");
+            const latest = response.data[response.data.length - 1];
+            if (!latest) {
+                this.log.warn("Keine Daten im Feed gefunden");
+                return;
+            }
 
-		/*
-			setState examples
-			you will notice that each setState will cause the stateChange event to fire (because of above subscribeStates cmd)
-		*/
-		// the variable testVariable is set to true as command (ack=false)
-		await this.setStateAsync("testVariable", true);
+            // --- Solarwind ---
+            await this.setStateAsync("solarwind.speed", { val: parseFloat(latest.speed || 0), ack: true });
+            await this.setStateAsync("solarwind.flow_angle", { val: parseFloat(latest.flow_angle || 0), ack: true });
+            await this.setStateAsync("solarwind.proton_flux", { val: parseFloat(latest.proton_flux || 0), ack: true });
+            await this.setStateAsync("solarwind.density", { val: parseFloat(latest.density || 0), ack: true });
+            await this.setStateAsync("solarwind.temperature", { val: parseFloat(latest.temperature || 0), ack: true });
 
-		// same thing, but the value is flagged "ack"
-		// ack should be always set to true if the value is received from or acknowledged from the target system
-		await this.setStateAsync("testVariable", { val: true, ack: true });
+            // --- Magnetfeld ---
+            await this.setStateAsync("magnetosphere.bx", { val: parseFloat(latest.bx_gsm || 0), ack: true });
+            await this.setStateAsync("magnetosphere.by", { val: parseFloat(latest.by_gsm || 0), ack: true });
+            await this.setStateAsync("magnetosphere.bz", { val: parseFloat(latest.bz_gsm || 0), ack: true });
+            await this.setStateAsync("magnetosphere.bt", { val: parseFloat(latest.bt || 0), ack: true });
 
-		// same thing, but the state is deleted after 30s (getState will return null afterwards)
-		await this.setStateAsync("testVariable", { val: true, ack: true, expire: 30 });
+            this.log.info("SpaceWeather-Daten erfolgreich aktualisiert");
 
-		// examples for the checkPassword/checkGroup functions
-		let result = await this.checkPasswordAsync("admin", "iobroker");
-		this.log.info("check user admin pw iobroker: " + result);
+        } catch (error) {
+            this.log.error("Fehler beim Abruf der SpaceWeather-Daten: " + error.message);
+        }
+    }
 
-		result = await this.checkGroupAsync("admin", "admin");
-		this.log.info("check group user admin group admin: " + result);
-	}
-
-	/**
-	 * Is called when adapter shuts down - callback has to be called under any circumstances!
-	 * @param {() => void} callback
-	 */
-	onUnload(callback) {
-		try {
-			// Here you must clear all timeouts or intervals that may still be active
-			// clearTimeout(timeout1);
-			// clearTimeout(timeout2);
-			// ...
-			// clearInterval(interval1);
-
-			callback();
-		} catch (e) {
-			callback();
-		}
-	}
-
-	// If you need to react to object changes, uncomment the following block and the corresponding line in the constructor.
-	// You also need to subscribe to the objects with `this.subscribeObjects`, similar to `this.subscribeStates`.
-	// /**
-	//  * Is called if a subscribed object changes
-	//  * @param {string} id
-	//  * @param {ioBroker.Object | null | undefined} obj
-	//  */
-	// onObjectChange(id, obj) {
-	// 	if (obj) {
-	// 		// The object was changed
-	// 		this.log.info(`object ${id} changed: ${JSON.stringify(obj)}`);
-	// 	} else {
-	// 		// The object was deleted
-	// 		this.log.info(`object ${id} deleted`);
-	// 	}
-	// }
-
-	/**
-	 * Is called if a subscribed state changes
-	 * @param {string} id
-	 * @param {ioBroker.State | null | undefined} state
-	 */
-	onStateChange(id, state) {
-		if (state) {
-			// The state was changed
-			this.log.info(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
-		} else {
-			// The state was deleted
-			this.log.info(`state ${id} deleted`);
-		}
-	}
-
-	// If you need to accept messages in your adapter, uncomment the following block and the corresponding line in the constructor.
-	// /**
-	//  * Some message was sent to this instance over message box. Used by email, pushover, text2speech, ...
-	//  * Using this method requires "common.messagebox" property to be set to true in io-package.json
-	//  * @param {ioBroker.Message} obj
-	//  */
-	// onMessage(obj) {
-	// 	if (typeof obj === "object" && obj.message) {
-	// 		if (obj.command === "send") {
-	// 			// e.g. send email or pushover or whatever
-	// 			this.log.info("send command");
-
-	// 			// Send response in callback if required
-	// 			if (obj.callback) this.sendTo(obj.from, obj.command, "Message received", obj.callback);
-	// 		}
-	// 	}
-	// }
-
+    onUnload(callback) {
+        try {
+            if (this.timer) clearInterval(this.timer);
+            this.log.info("SpaceWeather Adapter gestoppt");
+            callback();
+        } catch (e) {
+            callback();
+        }
+    }
 }
 
 if (require.main !== module) {
-	// Export the constructor in compact mode
-	/**
-	 * @param {Partial<utils.AdapterOptions>} [options={}]
-	 */
-	module.exports = (options) => new Spaceweather(options);
+    module.exports = (options) => new SpaceWeatherAdapter(options);
 } else {
-	// otherwise start the instance directly
-	new Spaceweather();
+    new SpaceWeatherAdapter();
 }

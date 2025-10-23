@@ -1,91 +1,36 @@
 {
-	"common": {
-		"name": "spaceweather",
-		"version": "0.0.1",
-		"news": {
-			"0.0.1": {
-				"en": "initial release",
-				"de": "Erstveröffentlichung",
-				"ru": "Начальная версия",
-				"pt": "lançamento inicial",
-				"nl": "Eerste uitgave",
-				"fr": "Première version",
-				"it": "Versione iniziale",
-				"es": "Versión inicial",
-				"pl": "Pierwsze wydanie",
-				"uk": "Початкова версія",
-				"zh-cn": "首次出版"
-			}
-		},
-		"titleLang": {
-			"en": "SpaceWeather Sunweather Magneticfield Shumannresonance",
-			"de": "WeltraumWetter Sonnenwetter Magnetfeld Schumannresonanz",
-			"ru": "Космическая погода Солнечная погода Магнитное поле Шумановский резонанс",
-			"pt": "SpaceWeather Sunweather Campo magnético Ressonância Shumann",
-			"nl": "SpaceWeather Sunweather Magnetisch veld Shumannresonantie",
-			"fr": "SpaceWeather Sunweather Champ magnétique Résonance Shuman",
-			"it": "SpaceWeather Sunweather Campo magnetico Shumannresonance",
-			"es": "Clima espacial Clima solar Campo magnético Resonancia Shumann",
-			"pl": "SpaceWeather Pogoda słoneczna Pole magnetyczne Rezonans Shumanna",
-			"uk": "SpaceWeather Sunweather Магнітне поле Шумана",
-			"zh-cn": "太空天气 太阳天气 磁场 舒曼共振"
-		},
-		"desc": {
-			"en": "spaceweather",
-			"de": "Weltraumwetter",
-			"ru": "космическая погода",
-			"pt": "clima espacial",
-			"nl": "ruimteweer",
-			"fr": "météo spatiale",
-			"it": "meteorologia spaziale",
-			"es": "clima espacial",
-			"pl": "pogoda kosmiczna",
-			"uk": "космічна погода",
-			"zh-cn": "太空天气"
-		},
-		"authors": [
-			"hanebuechenes <hanebuechenes@gmail.com>"
-		],
-		"keywords": [
-			"ioBroker",
-			"template",
-			"Smart Home",
-			"home automation"
-		],
-		"licenseInformation": {
-			"type": "free",
-			"license": "MIT"
-		},
-		"platform": "Javascript/Node.js",
-		"icon": "spaceweather.png",
-		"enabled": true,
-		"extIcon": "https://raw.githubusercontent.com/hanebuechenes/ioBroker.spaceweather/main/admin/spaceweather.png",
-		"readme": "https://github.com/hanebuechenes/ioBroker.spaceweather/blob/main/README.md",
-		"loglevel": "info",
-		"tier": 3,
-		"mode": "daemon",
-		"type": "weather",
-		"compact": true,
-		"connectionType": "cloud",
-		"dataSource": "poll",
-		"adminUI": {
-			"config": "json"
-		},
-		"dependencies": [
-			{
-				"js-controller": ">=6.0.11"
-			}
-		],
-		"globalDependencies": [
-			{
-				"admin": ">=7.0.23"
-			}
-		]
-	},
-	"native": {
-		"option1": true,
-		"option2": "42"
-	},
-	"objects": [],
-	"instanceObjects": []
+  "common": {
+    "name": "spaceweather",
+    "version": "0.0.1",
+    "title": "SpaceWeather Adapter",
+    "authors": ["Herr Gott <noreply@example.com>"],
+    "desc": "Lädt aktuelle Solarwind- und Magnetfeld-Daten von NOAA",
+    "platform": "Javascript/Node.js",
+    "mode": "daemon",
+    "enabled": true,
+    "loglevel": "info",
+    "license": "MIT",
+    "keywords": ["space", "solar wind", "magnetosphere"],
+    "type": "weather",
+    "connectionType": "none",
+    "dataSource": "poll",
+    "materialize": true,
+    "compact": true
+  },
+  "native": {},
+  "objects": [],
+  "instanceObjects": [
+    {
+      "_id": "solarwind",
+      "type": "channel",
+      "common": { "name": "Solarwind-Daten" },
+      "native": {}
+    },
+    {
+      "_id": "magnetosphere",
+      "type": "channel",
+      "common": { "name": "Magnetfeld-Daten" },
+      "native": {}
+    }
+  ]
 }
