@@ -1,16 +1,45 @@
 {
-	"i18n": true,
-	"type": "panel",
-	"items": {
-		"option1": {
-			"type": "checkbox",
-			"label": "option1",
-			"newLine": true
-		},
-		"option2": {
-			"type": "text",
-			"label": "option2",
-			"newLine": true
-		}
-	}
+  "i18n": true,
+  "type": "panel",
+  "items": {
+    "apiSettings": {
+      "type": "header",
+      "text": "API Key und Intervall",
+      "size": 3
+    },
+    "apiKey": {
+      "type": "text",
+      "label": "API Key (optional, aber empfohlen)",
+      "tooltip": "Tragen Sie hier Ihren optionalen NASA API-Key ein, falls Sie eine höhere Abrufrate benötigen.",
+      "placeholder": "Geben Sie Ihren API-Key ein...",
+      "maxLength": 50,
+      "help": "Derzeit wird dieser Key noch nicht im Adapter verwendet, ist aber für zukünftige Erweiterungen vorgesehen.",
+      "sm": 12,
+      "md": 6,
+      "lg": 4
+    },
+    "updateInterval": {
+      "type": "number",
+      "label": "Update Intervall (Minuten)",
+      "min": 1,
+      "max": 60,
+      "step": 1,
+      "default": 5,
+      "tooltip": "Wie oft sollen die Daten von NOAA abgerufen werden (in Minuten)?",
+      "sm": 12,
+      "md": 6,
+      "lg": 4
+    },
+    "hint": {
+      "type": "staticText",
+      "text": "Datenquelle: Die Daten werden vom NOAA Space Weather Prediction Center bereitgestellt. (<a href=\"https://services.swpc.noaa.gov/\" target=\"_blank\">Zur Quelle</a>)",
+      "sm": 12,
+      "md": 12,
+      "style": {
+          "paddingTop": "15px",
+          "fontSize": "14px",
+          "color": "#666"
+      }
+    }
+  }
 }

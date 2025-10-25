@@ -1,0 +1,41 @@
+body {
+    font-family: Arial, sans-serif;
+    padding: 1em;
+    background-color: var(--color-background, #fff);
+    color: var(--color-text, #000);
+}
+
+label {
+    display: block;
+    margin-bottom: 1em;
+}
+
+input {
+    display: block;
+    width: 100%;
+    padding: 0.5em;
+    margin-top: 0.2em;
+}
+
+button {
+    padding: 0.5em 1em;
+    margin-top: 1em;
+    cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+    body {
+        background-color: #222;
+        color: #eee;
+    }
+    input {
+        background-color: #333;
+        color: #eee;
+        border: 1px solid #555;
+    }
+    button {
+        background-color: #444;
+        color: #eee;
+        border: none;
+    }
+}

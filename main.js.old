@@ -1,0 +1,652 @@
+"use strict";
+
+const utils = require("@iobroker/adapter-core");
+const axios = require("axios");
+
+class SpaceWeatherAdapter extends utils.Adapter {
+
+    constructor(options) {
+        super({
+            ...options,
+            name: "spaceweather",
+        });
+        this.on("ready", this.onReady.bind(this));
+        this.on("unload", this.onUnload.bind(this));
+        this.timer = null;
+    }
+
+    async onReady() {
+        // Read configuration values
+        const updateIntervalMinutes = parseInt(this.config.updateInterval, 10) || 5;
+        const apiKey = this.config.apiKey;
+
+        this.log.info(`SpaceWeather Adapter started. Update Interval: ${updateIntervalMinutes} minutes.`);
+        
+        if (apiKey) {
+             this.log.debug("API Key is configured.");
+        } else {
+             this.log.debug("No API Key configured.");
+        }
+
+        await this.ensureObjects(); // Create data points
+        await this.fetchData(apiKey); // Initial fetch
+        
+        // Start timer
+        const intervalMs = updateIntervalMinutes * 60 * 1000;
+        this.timer = setInterval(() => this.fetchData(apiKey), intervalMs);
+    }
+
+    async ensureObjects() {
+        const states = {
+            // --- Solar Wind & Magnetosphere (Existing) ---
+            "solarwind.speed": { name: "Solar Wind Speed", unit: "km/s", type: "number" },
+            "solarwind.density": { name: "Solar Wind Density", unit: "cm^-3", type: "number" }, 
+            "solarwind.temperature": { name: "Solar Wind Temperature", unit: "K", type: "number" },
+            "solarwind.flow_angle": { name: "Solar Wind Flow Angle", unit: "°", type: "number" },
+            "magnetosphere.bx": { name: "Magnetic Field Bx (GSM)", unit: "nT", type: "number" },
+            "magnetosphere.by": { name: "Magnetic Field By (GSM)", unit: "nT", type: "number" },
+            "magnetosphere.bz": { name: "Magnetic Field Bz (GSM)", unit: "nT", type: "number" },
+            "magnetosphere.bt": { name: "Magnetic Field Bt (Total)", unit: "nT", type: "number" },
+            "electric_field.e_field": { name: "Electric Field (E-Field)", unit: "mV/m", type: "number", role: "value" },
+            
+            // --- Kp-Index (Existing) ---
+            "kp_index.value": { name: "Planetary K-Index (Kp)", unit: "", type: "number", role: "value.level" },
+            "kp_index.a_running": { name: "Kp Running A-Index", unit: "", type: "number", role: "value" },
+            "kp_index.station_count": { name: "Number of Stations", unit: "", type: "number", role: "value" },
+            "kp_index.forecast_value": { name: "Kp Forecast Value", unit: "", type: "number", role: "value.level" },
+            "kp_index.forecast_time": { name: "Kp Forecast Time", unit: "", type: "string", role: "value.datetime" },
+
+            // --- Solar Activity (Existing) ---
+            "solar_activity.f107_radio_flux": { name: "F10.7 Radio Flux", unit: "sfu", type: "number", role: "value" },
+            "solar_activity.sunspot_number": { name: "Sunspot Number", unit: "", type: "number", role: "value" }, // Placeholder 
+            "solar_activity.xray_flux": { name: "GOES X-Ray Flux (1-8 Å)", unit: "W/m²", type: "number", role: "value.power" },
+            "solar_activity.m_flare_prob": { name: "M-Class Flare Probability", unit: "%", type: "number", role: "value.forecast" },
+            "solar_activity.x_flare_prob": { name: "X-Class Flare Probability", unit: "%", type: "number", role: "value.forecast" },
+            
+            // --- Geomagnetic Disturbance (Existing) ---
+            "geomagnetic_disturbance.dst_index": { name: "Dst (Disturbance Storm Time) Index", unit: "nT", type: "number", role: "value.warning" },
+            "geomagnetic_disturbance.g_storm_risk": { name: "Geomagnetic Storm Risk (G-Class)", unit: "", type: "string", role: "indicator.text" },
+
+            // --- Erdbeben-Daten (NEU) ---
+            "earthquake.latest.magnitude": { name: "Latest Magnitude", unit: "M", type: "number", role: "value.warning" },
+            "earthquake.latest.place": { name: "Latest Location", unit: "", type: "string", role: "text" },
+            "earthquake.latest.time": { name: "Latest Timestamp", unit: "", type: "string", role: "value.datetime" },
+            "earthquake.latest.url": { name: "Latest Event URL", unit: "", type: "string", role: "url" },
+
+            // --- Unused/Placeholder ---
+            "solarwind.proton_flux": { name: "Proton Flux", unit: "pfu", type: "number" }, 
+            "magnetosphere.bt_nsv": { name: "Magnetic Field Bt (Non-Solar Wind)", unit: "nT", type: "number" }, 
+            "magnetosphere.bx_rtn": { name: "Magnetic Field Bx (RTN)", unit: "nT", type: "number" }, 
+            "magnetosphere.by_rtn": { name: "Magnetic Field By (RTN)", unit: "nT", type: "number" }, 
+            "magnetosphere.bz_rtn": { name: "Magnetic Field Bz (RTN)", unit: "nT", type: "number" }, 
+
+            // --- Timestamp ---
+            "last_update": { name: "Last Data Timestamp", unit: "", type: "string", role: "value.datetime" }
+        };
+
+        // Create channels
+        await this.setObjectNotExistsAsync("electric_field", { type: "channel", common: { name: "Electric Field Data" }, native: {} });
+        await this.setObjectNotExistsAsync("kp_index", { type: "channel", common: { name: "Planetary K-Index Data" }, native: {} });
+        await this.setObjectNotExistsAsync("solar_activity", { type: "channel", common: { name: "Solar Activity" }, native: {} });
+        await this.setObjectNotExistsAsync("geomagnetic_disturbance", { type: "channel", common: { name: "Geomagnetic Disturbance" }, native: {} });
+        await this.setObjectNotExistsAsync("earthquake", { type: "channel", common: { name: "Earthquake Data (USGS)" }, native: {} }); // NEU
+
+        // Create all states
+        for (const [id, meta] of Object.entries(states)) {
+            await this.setObjectNotExistsAsync(id, {
+                type: "state",
+                common: {
+                    name: meta.name,
+                    type: meta.type,
+                    role: meta.role || "value",
+                    unit: meta.unit,
+                    read: true,
+                    write: false
+                },
+                native: {}
+            });
+        }
+    }
+    
+    /**
+     * Fetches the latest value from a NOAA array feed without applying physical filters.
+     * **VERBESSERT:** Robustere Handhabung von NOAA-Fehlermarkern (-1e05, NaN, etc.).
+     * Ruft den neuesten Wert aus einem NOAA Array-Feed ab.
+     * @param {string} url - The API URL.
+     * @param {number} valueIndex - The column index of the desired value.
+     * @returns {Promise<{time_tag: string, value: number, raw_data: string[] | null} | null>}
+     */
+    async getLatestValueFromFeed(url, valueIndex) {
+        try {
+            this.log.debug(`Attempting to fetch data from URL: ${url}.`);
+            const response = await axios.get(url);
+            this.log.debug(`API call successful. HTTP Status: ${response.status} for ${url}`);
+
+            if (!Array.isArray(response.data) || response.data.length < 2) {
+                this.log.warn(`API feed from ${url} is empty or invalid.`);
+                return null;
+            }
+
+            // Iterate backwards, starting from the last entry and skipping the header (Index 0)
+            for (let i = response.data.length - 1; i > 0; i--) { 
+                const current = response.data[i]; 
+
+                if (Array.isArray(current) && current.length > valueIndex) {
+                    const timeTag = current[0];
+                    const valueRaw = String(current[valueIndex]).trim();
+                    
+                    // 1. Check for valid timestamp
+                    if (!timeTag || String(timeTag).trim() === "") {
+                        this.log.debug(`[FEED SKIP] Entry ${i} skipped: Missing timestamp. Raw Data: ${current.join('|')}`);
+                        continue;
+                    }
+
+                    // 2. Check for known NOAA error/missing codes (case-insensitive and common values)
+                    // Common markers: -1e05, -99999.0, NaN, leerer String
+                    const valueLower = valueRaw.toLowerCase();
+
+                    if (valueLower === "" || valueLower === "nan" || valueLower === "-99999.00" || valueLower.includes("-1e05")) {
+                        this.log.debug(`[FEED SKIP] Datapoint ${valueIndex} in entry ${i} (${timeTag}) skipped. Reason: Known NOAA missing/error code or empty. Raw Data: ${current.join('|')}`);
+                        continue; // Gehe zum nächsten Eintrag
+                    }
+                    
+                    const parsedValue = parseFloat(valueRaw);
+                        
+                    // 3. Final check: Muss eine endliche Zahl sein
+                    if (isFinite(parsedValue)) {
+                        return {
+                            time_tag: timeTag,
+                            value: parsedValue,
+                            raw_data: current 
+                        };
+                    } else {
+                        this.log.debug(`[FEED REJECTED] Datapoint ${valueIndex} in entry ${i} (${timeTag}) rejected. Reason: Could not be interpreted as a finite number. Raw Data: ${current.join('|')}`);
+                    }
+                }
+            }
+            this.log.warn(`API feed from ${url} contained no single valid value (Index ${valueIndex}).`);
+            return null;
+
+        } catch (error) {
+            this.log.error(`Error fetching from ${url}: ${error.message}.`);
+            return null;
+        }
+    }
+    
+    /**
+     * Fetches the latest valid entry from the Plasma feed without physical filters.
+     * @param {string} url - The API URL.
+     * @returns {Promise<{time_tag: string, V: number, N: number, T: number, flow_angle: number} | null>}
+     */
+    async getLatestPlasmaData(url) {
+        try {
+            this.log.debug(`Attempting to fetch Plasma data from URL: ${url}.`);
+            const response = await axios.get(url);
+            this.log.debug(`API call successful. HTTP Status: ${response.status} for ${url}`);
+
+            if (!Array.isArray(response.data) || response.data.length < 2) {
+                this.log.warn(`Plasma feed from ${url} is empty or invalid.`);
+                return null;
+            }
+
+            // Plasma feed columns: [0: time_tag, 1: V, 2: N, 3: T, 4: flow_angle]
+            const V_INDEX = 1;
+            const N_INDEX = 2;
+
+            for (let i = response.data.length - 1; i > 0; i--) { 
+                const current = response.data[i]; 
+
+                if (Array.isArray(current) && current.length > N_INDEX) {
+                    const timeTag = current[0];
+                    const vRaw = String(current[V_INDEX]).trim().toLowerCase();
+                    const nRaw = String(current[N_INDEX]).trim().toLowerCase();
+
+                    if (timeTag && vRaw && nRaw) {
+                        // Check for missing/error values in V and N, assuming T and FlowAngle can be 0 or missing
+                        const isVValid = !(vRaw === "" || vRaw === "nan" || vRaw === "-99999.00" || vRaw.includes("-1e05"));
+                        const isNValid = !(nRaw === "" || nRaw === "nan" || nRaw === "-99999.00" || nRaw.includes("-1e05"));
+
+                        if (isVValid && isNValid) {
+                            const V = parseFloat(vRaw);
+                            const N = parseFloat(nRaw);
+                        
+                            // Check for validity as a finite number.
+                            if (isFinite(V) && isFinite(N)) {
+                                
+                                const T = parseFloat(current[3] || 0);
+                                const FlowAngle = parseFloat(current[4] || 0);
+
+                                return {
+                                    time_tag: timeTag,
+                                    V: V,
+                                    N: N,
+                                    T: T,
+                                    flow_angle: FlowAngle
+                                };
+                            } else {
+                                this.log.debug(`[PLASMA REJECTED] Entry ${i} (${timeTag}) rejected. Reason: Invalid number (V=${V}, N=${N}). Raw Data: ${current.join('|')}`);
+                            }
+                        } else {
+                            this.log.debug(`[PLASMA SKIP] Entry ${i} (${timeTag}) skipped. Reason: Missing/Error value in V or N. Raw Data: ${current.join('|')}`);
+                        }
+                    }
+                }
+            }
+            this.log.warn(`Plasma feed from ${url} contained no single valid value.`);
+            return null;
+
+        } catch (error) {
+            this.log.error(`Error fetching from ${url}: ${error.message}.`);
+            return null;
+        }
+    }
+    
+    /**
+     * Fetches the text-based Space Weather Forecast and extracts probabilities.
+     * Nutzt den stabilen 3-Tage-Forecast und passt die Regex-Logik an.
+     * @returns {Promise<{m_flare_prob: number, x_flare_prob: number, g_storm_risk: string} | null>}
+     */
+    async fetchAndParseForecast() {
+        // KORREKTUR: Neue stabile URL für den 3-Tage-Forecast, da weekly-outlook.txt 404 zurückgibt.
+        const forecastUrl = "https://services.swpc.noaa.gov/text/3-day-forecast.txt";
+        this.log.debug(`Attempting to fetch text forecast from: ${forecastUrl}`);
+        
+        try {
+            const response = await axios.get(forecastUrl);
+            const text = response.data;
+
+            const result = {
+                m_flare_prob: 0,
+                x_flare_prob: 0,
+                g_storm_risk: 'G0 (None)'
+            };
+
+            // 1. Geomagnetischer Sturm Risiko (G-Class)
+            // Sucht nach dem G-Level in der Sektion "NOAA SPACE WEATHER SCALE"
+            const gLevelMatch = text.match(/GEOMAGNETIC STORM\s*-\s*(G\d+)\s*\(([^)]+)\)/i);
+            let gRiskText = 'G0 (None)';
+
+            if (gLevelMatch && gLevelMatch[1]) {
+                // Wenn G-Klasse gefunden (z.B. G1, G2), verwenden wir diese.
+                gRiskText = `${gLevelMatch[1]} (${gLevelMatch[2].trim()})`;
+            } else {
+                 // Fallback auf NONE, wenn keine G-Klasse angegeben ist.
+                const noneMatch = text.match(/GEOMAGNETIC STORM\s*-\s*NONE/i);
+                if (noneMatch) {
+                     gRiskText = 'G0 (None)';
+                }
+            }
+            
+            // Setze den G-Storm Risk
+            result.g_storm_risk = gRiskText;
+
+
+            // 2. M/X-Klasse Flare Wahrscheinlichkeiten
+            // Sucht die Sektion "B. PROBABILITIES" und dann die erste Zeile mit den Werten (B C M X)
+            const rxRayHeaderIndex = text.indexOf("R/X-RAY:");
+
+            if (rxRayHeaderIndex !== -1) {
+                const tableSection = text.substring(rxRayHeaderIndex);
+                
+                // Regex, um die erste Zeile mit vier Zahlenwerten nach "R/X-RAY:" zu finden.
+                // Die Werte sind: B C M X
+                const dailyForecastMatch = tableSection.match(/:\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/); 
+                
+                if (dailyForecastMatch) {
+                    // Index 3 = M-Class probability, Index 4 = X-Class probability
+                    result.m_flare_prob = parseInt(dailyForecastMatch[3], 10);
+                    result.x_flare_prob = parseInt(dailyForecastMatch[4], 10);
+                }
+            }
+            
+            this.log.info(`Forecast Parsed: M-Flare: ${result.m_flare_prob}%, X-Flare: ${result.x_flare_prob}%, G-Storm: ${result.g_storm_risk}`);
+            return result;
+
+        } catch (error) {
+            this.log.error(`Error fetching or parsing text forecast from ${forecastUrl}: ${error.message}.`);
+            return null;
+        }
+    }
+
+    /**
+     * Fetches the latest M2.5+ earthquake data from USGS. (NEU)
+     * @returns {Promise<{magnitude: number, place: string, time: string, url: string} | null>}
+     */
+    async fetchEarthquakeData() {
+        // Feed: M2.5+ earthquakes in the last day (24 hours) - GeoJSON Feed
+        const url = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson";
+        this.log.debug(`Attempting to fetch earthquake data from: ${url}`);
+        
+        try {
+            const response = await axios.get(url);
+            
+            if (response.status !== 200 || !response.data || !Array.isArray(response.data.features) || response.data.features.length === 0) {
+                this.log.warn(`Earthquake feed from ${url} is empty or invalid.`);
+                return null;
+            }
+
+            // The data is generally sorted by time (newest first), so we take the first feature
+            const latestFeature = response.data.features[0];
+            const properties = latestFeature.properties;
+
+            if (properties && properties.mag && properties.place && properties.time && properties.url) {
+                // Time is in milliseconds since epoch, convert to ISO string for ioBroker state
+                const timeString = new Date(properties.time).toISOString();
+                
+                const result = {
+                    magnitude: parseFloat(properties.mag),
+                    place: String(properties.place),
+                    time: timeString,
+                    url: String(properties.url)
+                };
+                
+                this.log.info(`Latest Earthquake: M${result.magnitude} at ${result.place} (${result.time})`);
+                return result;
+            } else {
+                this.log.warn("Latest earthquake feature is missing required properties.");
+                return null;
+            }
+        } catch (error) {
+            this.log.error(`Error fetching earthquake data from ${url}: ${error.message}.`);
+            return null;
+        }
+    }
+
+
+    async fetchData(apiKey) {
+        
+        const fetchedValues = {};
+        let latestTimeTag = "";
+
+        // Helper function for latest time tag update
+        const updateLatestTimeTag = (timeTag) => {
+            if (timeTag && timeTag > latestTimeTag) {
+                latestTimeTag = timeTag;
+            }
+        };
+
+        // --- 1. Kp-Index Data (Observation) mit Fallback-Logik ---
+        const kpUrls = [
+            "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json",
+            "https://services.swpc.noaa.gov/products/stations/kp-last-24-hours.json" // Fallback-Quelle
+        ];
+
+        let kpData = null;
+        let attempt = 0;
+
+        for (const url of kpUrls) {
+            attempt++;
+            this.log.debug(`Attempting Kp URL ${attempt}: ${url}`);
+            kpData = await this.getLatestValueFromFeed(url, 1);
+            if (kpData) {
+                this.log.info(`Kp-Index (Observation) successfully retrieved from URL ${attempt}.`);
+                break;
+            } else if (attempt < kpUrls.length) {
+                this.log.warn("Kp-Index (Observation) primary source failed. Trying next fallback.");
+            }
+        }
+        if (kpData) {
+            fetchedValues.kp_value = kpData.value;
+            fetchedValues.kp_a_running = parseFloat(kpData.raw_data[2] || 0); 
+            fetchedValues.kp_station_count = parseInt(kpData.raw_data[3] || 0, 10); 
+            updateLatestTimeTag(kpData.time_tag);
+            this.log.info(`Kp-Index Data: Kp = ${kpData.value}`);
+        } else {
+            fetchedValues.kp_value = 0; // Setze auf 0, falls beide Feeds fehlschlagen
+            this.log.error("Kp-Index (Observation) could not be updated using any available feeds.");
+        }
+        
+        // --- 2. Kp-Index Forecast Data ---
+        // Forecast columns: [0: time_tag, 1: kp_forecast_value]
+        const kpForecastUrl = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json";
+        const kpForecastData = await this.getLatestValueFromFeed(kpForecastUrl, 1);
+        if (kpForecastData) {
+            fetchedValues.kp_forecast_value = kpForecastData.value;
+            fetchedValues.kp_forecast_time = kpForecastData.time_tag;
+            this.log.info(`Kp-Index Forecast: Kp = ${kpForecastData.value} for ${kpForecastData.time_tag}`);
+        } else {
+            this.log.warn("Kp-Index Forecast could not be updated.");
+        }
+
+
+        // --- 3. Plasma Data (V, N, T) ---
+        const plasmaUrl = "https://services.swpc.noaa.gov/products/solar-wind/plasma-2-hour.json";
+        const plasmaData = await this.getLatestPlasmaData(plasmaUrl); 
+        if (plasmaData) {
+            fetchedValues.solarwind_speed = plasmaData.V;
+            fetchedValues.solarwind_density = plasmaData.N; 
+            fetchedValues.solarwind_temperature = plasmaData.T;
+            fetchedValues.solarwind_flow_angle = plasmaData.flow_angle;
+            updateLatestTimeTag(plasmaData.time_tag);
+            this.log.debug(`Plasma Data: V=${plasmaData.V} km/s, N=${plasmaData.N} cm^-3`);
+        } else {
+            this.log.warn("Plasma Data (Speed/Density) could not be updated.");
+        }
+        
+        
+        // --- 4. Magnetic Field Data (Bx, By, Bz, Bt) ---
+        const magUrl = "https://services.swpc.noaa.gov/products/solar-wind/mag-2-hour.json";
+        const bzData = await this.getLatestValueFromFeed(magUrl, 3); // Index 3 is Bz
+        if (bzData) {
+            fetchedValues.magnetosphere_bz = bzData.value;
+            fetchedValues.magnetosphere_bx = parseFloat(bzData.raw_data[1] || 0); 
+            fetchedValues.magnetosphere_by = parseFloat(bzData.raw_data[2] || 0); 
+            fetchedValues.magnetosphere_bt = parseFloat(bzData.raw_data[4] || 0); 
+            updateLatestTimeTag(bzData.time_tag);
+            this.log.debug(`Magnetic Field Data: Bz=${bzData.value} nT, Bt=${fetchedValues.magnetosphere_bt} nT`);
+        } else {
+            this.log.warn("Magnetic Field Data (Bz, Bt) could not be updated.");
+        }
+        
+        // --- 5. F10.7 Radio Flux mit Fallback-Logik ---
+        const f107Urls = [
+            "https://services.swpc.noaa.gov/products/10cm-flux-30-day.json",               // 1. Versuch (30-Tage-Historie)
+            "https://services.swpc.noaa.gov/products/noaa-predicted-radio-flux.json"  // 2. Versuch (Vorhersage, enthält oft aktuellen Wert)
+        ];
+        let f107Data = null;
+        attempt = 0;
+
+        for (const url of f107Urls) {
+            attempt++;
+            this.log.debug(`Attempting F10.7 URL ${attempt}: ${url}`);
+            f107Data = await this.getLatestValueFromFeed(url, 1); // F10.7 ist in Index 1
+            if (f107Data) {
+                this.log.info(`F10.7 Radio Flux successfully retrieved from URL ${attempt}.`);
+                break;
+            } else if (attempt < f107Urls.length) {
+                this.log.warn("F10.7 primary source failed. Trying next fallback.");
+            }
+        }
+        if (f107Data) {
+            fetchedValues.f107_radio_flux = f107Data.value;
+            updateLatestTimeTag(f107Data.time_tag);
+            this.log.info(`F10.7 Radio Flux: ${f107Data.value} sfu`);
+        } else {
+            fetchedValues.f107_radio_flux = 0;
+            this.log.error("F10.7 Radio Flux could not be updated using any available feeds.");
+        }
+        
+        // --- 6. Dst Index mit Fallback-Logik ---
+        const dstUrls = [
+            "https://services.swpc.noaa.gov/products/kyoto-dst.json",             // 1. Versuch (Kyoto Dst)
+            "https://services.swpc.noaa.gov/products/dst.json"                   // 2. Versuch (Alternativer Dst-Feed)
+        ];
+        let dstData = null;
+        attempt = 0;
+
+        for (const url of dstUrls) {
+            attempt++;
+            this.log.debug(`Attempting Dst URL ${attempt}: ${url}`);
+            dstData = await this.getLatestValueFromFeed(url, 1); // Dst-Index ist in Index 1
+            if (dstData) {
+                this.log.info(`Dst Index successfully retrieved from URL ${attempt}.`);
+                break;
+            } else if (attempt < dstUrls.length) {
+                this.log.warn("Dst Index primary source failed. Trying next fallback.");
+            }
+        }
+        if (dstData) {
+            fetchedValues.dst_index = dstData.value;
+            updateLatestTimeTag(dstData.time_tag);
+            this.log.info(`Dst Index: ${dstData.value} nT`);
+        } else {
+            fetchedValues.dst_index = 0;
+            this.log.error("Dst Index could not be updated using any available feeds.");
+        }
+        
+        // --- 7. GOES X-Ray Flux (1-8 Å) mit ZWEI-Stufen-Fallback-Logik ---
+        // VERBESSERT: Parsing-Logik in getLatestValueFromFeed wurde robuster gemacht, um Missing-Value-Marker zu ignorieren.
+        const xrayUrls = [
+            "https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json",      // 1. Versuch
+            "https://services.swpc.noaa.gov/json/goes/secondary/xrays-6-hour.json",    // 2. Versuch
+        ];
+        
+        let xrayData = null;
+        attempt = 0;
+
+        for (const url of xrayUrls) {
+            attempt++;
+            this.log.debug(`Attempting X-Ray URL ${attempt}: ${url}`);
+            
+            // Index 2 ist der Long-Wave X-Ray Flux (1-8 Å)
+            xrayData = await this.getLatestValueFromFeed(url, 2);
+            
+            if (xrayData) {
+                this.log.info(`GOES X-Ray Flux successfully retrieved from URL ${attempt}.`);
+                break; // Erfolgreich, Schleife beenden
+            } else {
+                this.log.warn(`X-Ray URL ${attempt} failed. Trying next fallback.`);
+            }
+        }
+
+        if (xrayData) {
+            fetchedValues.xray_flux = xrayData.value;
+            updateLatestTimeTag(xrayData.time_tag);
+            this.log.info(`GOES X-Ray Flux (1-8 Å): ${xrayData.value} W/m²`);
+        } else {
+            fetchedValues.xray_flux = 0;
+            // Meldung auf 2 verfügbare Feeds angepasst
+            this.log.error("GOES X-Ray Flux could not be updated using any of the 2 available feeds.");
+        }
+
+        
+        // --- 8. Solar Flare/Storm Forecast Data (Parsing Text Advisory) ---
+        const forecastData = await this.fetchAndParseForecast();
+        if (forecastData) {
+            fetchedValues.m_flare_prob = forecastData.m_flare_prob;
+            fetchedValues.x_flare_prob = forecastData.x_flare_prob;
+            fetchedValues.g_storm_risk = forecastData.g_storm_risk;
+            this.log.info(`Forecast Data: M-Flare Prob=${forecastData.m_flare_prob}%, G-Storm Risk=${forecastData.g_storm_risk}`);
+        } else {
+            this.log.warn("Forecast data (Flares/Storms) could not be updated.");
+            // Set values to 0/default if fetch fails
+            fetchedValues.m_flare_prob = 0;
+            fetchedValues.x_flare_prob = 0;
+            fetchedValues.g_storm_risk = 'G0 (None)';
+        }
+
+        // --- 9. Earthquake Data (USGS) (NEU) ---
+        const earthquakeData = await this.fetchEarthquakeData();
+        if (earthquakeData) {
+            fetchedValues.earthquake_latest_magnitude = earthquakeData.magnitude;
+            fetchedValues.earthquake_latest_place = earthquakeData.place;
+            fetchedValues.earthquake_latest_time = earthquakeData.time;
+            fetchedValues.earthquake_latest_url = earthquakeData.url;
+            // Da Erdbeben weniger häufig sind, aktualisieren wir den TimeTag nur, wenn er neuer ist als der letzte Weltraumwetter-TimeTag
+            updateLatestTimeTag(earthquakeData.time);
+        } else {
+            this.log.warn("Earthquake data could not be updated.");
+        }
+
+
+        // --- 10. E-Field Calculation ---
+        let eField = 0;
+        const V = fetchedValues.solarwind_speed;
+        const Bz = fetchedValues.magnetosphere_bz;
+        
+        if (V !== undefined && V > 0 && Bz !== undefined) {
+             eField = V * Bz * 0.001; 
+             fetchedValues.electric_field_e_field = eField;
+             this.log.debug(`E-Field calculated: ${eField.toFixed(3)} mV/m`);
+        } else {
+            fetchedValues.electric_field_e_field = 0;
+            this.log.warn("E-Field could not be calculated. Solar wind speed or Bz are missing.");
+        }
+        
+        
+        // --- 11. Set States ---
+        if (latestTimeTag) {
+            await this.setStateAsync("last_update", { val: latestTimeTag, ack: true });
+        } else {
+            this.log.warn("No timestamp found from any of the observed feeds. States will not be updated.");
+            await this.setStateAsync("electric_field.e_field", { val: 0, ack: true }); 
+            return;
+        }
+
+        // Kp-Index (Observation & Forecast)
+        await this.setStateAsync("kp_index.value", { val: fetchedValues.kp_value || 0, ack: true });
+        await this.setStateAsync("kp_index.a_running", { val: fetchedValues.kp_a_running || 0, ack: true });
+        await this.setStateAsync("kp_index.station_count", { val: fetchedValues.kp_station_count || 0, ack: true });
+        await this.setStateAsync("kp_index.forecast_value", { val: fetchedValues.kp_forecast_value || 0, ack: true });
+        await this.setStateAsync("kp_index.forecast_time", { val: fetchedValues.kp_forecast_time || "", ack: true });
+
+        // Solar Wind & Plasma
+        await this.setStateAsync("solarwind.speed", { val: fetchedValues.solarwind_speed || 0, ack: true });
+        await this.setStateAsync("solarwind.density", { val: fetchedValues.solarwind_density || 0, ack: true });
+        await this.setStateAsync("solarwind.temperature", { val: fetchedValues.solarwind_temperature || 0, ack: true });
+        await this.setStateAsync("solarwind.flow_angle", { val: fetchedValues.solarwind_flow_angle || 0, ack: true }); 
+
+        // Magnetic Field
+        await this.setStateAsync("magnetosphere.bx", { val: fetchedValues.magnetosphere_bx || 0, ack: true }); 
+        await this.setStateAsync("magnetosphere.by", { val: fetchedValues.magnetosphere_by || 0, ack: true });
+        await this.setStateAsync("magnetosphere.bz", { val: fetchedValues.magnetosphere_bz || 0, ack: true });
+        await this.setStateAsync("magnetosphere.bt", { val: fetchedValues.magnetosphere_bt || 0, ack: true });
+        
+        // E-Field
+        await this.setStateAsync("electric_field.e_field", { val: fetchedValues.electric_field_e_field || 0, ack: true });
+
+        // Solar Activity & Disturbance
+        await this.setStateAsync("solar_activity.f107_radio_flux", { val: fetchedValues.f107_radio_flux || 0, ack: true });
+        await this.setStateAsync("solar_activity.xray_flux", { val: fetchedValues.xray_flux || 0, ack: true });
+        // Flare Probabilities
+        await this.setStateAsync("solar_activity.m_flare_prob", { val: fetchedValues.m_flare_prob || 0, ack: true });
+        await this.setStateAsync("solar_activity.x_flare_prob", { val: fetchedValues.x_flare_prob || 0, ack: true });
+
+        await this.setStateAsync("geomagnetic_disturbance.dst_index", { val: fetchedValues.dst_index || 0, ack: true });
+        // G-Storm Risk
+        await this.setStateAsync("geomagnetic_disturbance.g_storm_risk", { val: fetchedValues.g_storm_risk || 'G0 (None)', ack: true });
+        
+        // Erdbeben-Daten (NEU)
+        await this.setStateAsync("earthquake.latest.magnitude", { val: fetchedValues.earthquake_latest_magnitude || 0, ack: true });
+        await this.setStateAsync("earthquake.latest.place", { val: fetchedValues.earthquake_latest_place || "", ack: true });
+        await this.setStateAsync("earthquake.latest.time", { val: fetchedValues.earthquake_latest_time || "", ack: true });
+        await this.setStateAsync("earthquake.latest.url", { val: fetchedValues.earthquake_latest_url || "", ack: true });
+
+        this.log.info("SpaceWeather and Earthquake Data successfully updated.");
+
+        // Set unused/Placeholder States to 0
+        await this.setStateAsync("solarwind.proton_flux", { val: 0, ack: true });
+        await this.setStateAsync("magnetosphere.bt_nsv", { val: 0, ack: true });
+        await this.setStateAsync("magnetosphere.bx_rtn", { val: 0, ack: true });
+        await this.setStateAsync("magnetosphere.by_rtn", { val: 0, ack: true });
+        await this.setStateAsync("magnetosphere.bz_rtn", { val: 0, ack: true });
+        await this.setStateAsync("solar_activity.sunspot_number", { val: 0, ack: true });
+
+    }
+
+    onUnload(callback) {
+        try {
+            if (this.timer) clearInterval(this.timer);
+            this.log.info("SpaceWeather Adapter stopped");
+            callback();
+        } catch (e) {
+            callback();
+        }
+    }
+}
+
+if (require.main !== module) {
+    module.exports = (options) => new SpaceWeatherAdapter(options);
+} else {
+    new SpaceWeatherAdapter();
+}

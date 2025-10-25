@@ -1,35 +1,260 @@
 {
   "common": {
     "name": "spaceweather",
-    "version": "0.0.1",
-    "title": "SpaceWeather Adapter",
-    "authors": ["Herr Gott <noreply@example.com>"],
-    "desc": "Lädt aktuelle Solarwind- und Magnetfeld-Daten von NOAA",
-    "platform": "Javascript/Node.js",
+    "version": "1.0.0",
+    "title": "Space Weather and Geodata",
+    "desc": "Adapter für Weltraumwetter, Kp-Index und Erdbebendaten von NOAA/USGS.",
+    "platform": "node",
     "mode": "daemon",
-    "enabled": true,
     "loglevel": "info",
-    "license": "MIT",
-    "keywords": ["space", "solar wind", "magnetosphere"],
     "type": "weather",
-    "connectionType": "none",
-    "dataSource": "poll",
-    "materialize": true,
-    "compact": true
+    "i18n": "admin/i18n",
+    "authors": [
+      "Ihre Name"
+    ],
+    "license": "MIT",
+    "connectionType": "cloud",
+    "dataSource": "poll"
   },
-  "native": {},
-  "objects": [],
+  "native": {
+    "updateInterval": 5,
+    "apiKey": ""
+  },
   "instanceObjects": [
     {
-      "_id": "solarwind",
+      "_id": "info",
       "type": "channel",
-      "common": { "name": "Solarwind-Daten" },
+      "common": { "name": "Adapter Information" },
       "native": {}
     },
     {
+      "_id": "last_update",
+      "type": "state",
+      "common": {
+        "name": "Last Data Timestamp",
+        "type": "string",
+        "role": "value.datetime",
+        "read": true,
+        "write": false
+      },
+      "native": {}
+    },
+    
+    
+    
+    {
+      "_id": "solarwind",
+      "type": "channel",
+      "common": { "name": "Solar Wind Data" },
+      "native": {}
+    },
+    {
+      "_id": "solarwind.speed",
+      "type": "state",
+      "common": { "name": "Solar Wind Speed", "type": "number", "role": "value.speed", "unit": "km/s", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solarwind.density",
+      "type": "state",
+      "common": { "name": "Solar Wind Density", "type": "number", "role": "value.density", "unit": "cm^-3", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solarwind.temperature",
+      "type": "state",
+      "common": { "name": "Solar Wind Temperature", "type": "number", "role": "value.temperature", "unit": "K", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solarwind.flow_angle",
+      "type": "state",
+      "common": { "name": "Solar Wind Flow Angle", "type": "number", "role": "value.angle", "unit": "°", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solarwind.proton_flux",
+      "type": "state",
+      "common": { "name": "Proton Flux (>10 MeV)", "type": "number", "role": "value.warning", "unit": "pfu", "read": true, "write": false },
+      "native": {}
+    },
+
+
+
+    {
       "_id": "magnetosphere",
       "type": "channel",
-      "common": { "name": "Magnetfeld-Daten" },
+      "common": { "name": "Magnetosphere & IMF Data" },
+      "native": {}
+    },
+    {
+      "_id": "magnetosphere.bx",
+      "type": "state",
+      "common": { "name": "Magnetic Field Bx (GSM)", "type": "number", "role": "value.magneticField.x", "unit": "nT", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "magnetosphere.by",
+      "type": "state",
+      "common": { "name": "Magnetic Field By (GSM)", "type": "number", "role": "value.magneticField.y", "unit": "nT", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "magnetosphere.bz",
+      "type": "state",
+      "common": { "name": "Magnetic Field Bz (GSM)", "type": "number", "role": "value.magneticField.z", "unit": "nT", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "magnetosphere.bt",
+      "type": "state",
+      "common": { "name": "Magnetic Field Bt (Total)", "type": "number", "role": "value.magneticField", "unit": "nT", "read": true, "write": false },
+      "native": {}
+    },
+
+
+    {
+      "_id": "electric_field",
+      "type": "channel",
+      "common": { "name": "Electric Field Data" },
+      "native": {}
+    },
+    {
+      "_id": "electric_field.e_field",
+      "type": "state",
+      "common": { "name": "Electric Field (E-Field)", "type": "number", "role": "value.electricField", "unit": "mV/m", "read": true, "write": false },
+      "native": {}
+    },
+
+
+
+    {
+      "_id": "kp_index",
+      "type": "channel",
+      "common": { "name": "Planetary K-Index Data" },
+      "native": {}
+    },
+    {
+      "_id": "kp_index.value",
+      "type": "state",
+      "common": { "name": "Planetary K-Index (Kp)", "type": "number", "role": "value.level", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "kp_index.a_running",
+      "type": "state",
+      "common": { "name": "Kp Running A-Index", "type": "number", "role": "value", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "kp_index.station_count",
+      "type": "state",
+      "common": { "name": "Number of Stations", "type": "number", "role": "value", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "kp_index.forecast_value",
+      "type": "state",
+      "common": { "name": "Kp Forecast Value", "type": "number", "role": "value.level", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "kp_index.forecast_time",
+      "type": "state",
+      "common": { "name": "Kp Forecast Time", "type": "string", "role": "value.datetime", "read": true, "write": false },
+      "native": {}
+    },
+
+
+    
+    {
+      "_id": "solar_activity",
+      "type": "channel",
+      "common": { "name": "Solar Activity" },
+      "native": {}
+    },
+    {
+      "_id": "solar_activity.f107_radio_flux",
+      "type": "state",
+      "common": { "name": "F10.7 Radio Flux", "type": "number", "role": "value", "unit": "sfu", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solar_activity.sunspot_number",
+      "type": "state",
+      "common": { "name": "Sunspot Number", "type": "number", "role": "value", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solar_activity.xray_flux",
+      "type": "state",
+      "common": { "name": "GOES X-Ray Flux (1-8 Å)", "type": "number", "role": "value.power", "unit": "W/m²", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solar_activity.m_flare_prob",
+      "type": "state",
+      "common": { "name": "M-Class Flare Probability", "type": "number", "role": "value.forecast", "unit": "%", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "solar_activity.x_flare_prob",
+      "type": "state",
+      "common": { "name": "X-Class Flare Probability", "type": "number", "role": "value.forecast", "unit": "%", "read": true, "write": false },
+      "native": {}
+    },
+
+
+
+    {
+      "_id": "geomagnetic_disturbance",
+      "type": "channel",
+      "common": { "name": "Geomagnetic Disturbance" },
+      "native": {}
+    },
+    {
+      "_id": "geomagnetic_disturbance.dst_index",
+      "type": "state",
+      "common": { "name": "Dst (Disturbance Storm Time) Index", "type": "number", "role": "value.warning", "unit": "nT", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "geomagnetic_disturbance.g_storm_risk",
+      "type": "state",
+      "common": { "name": "Geomagnetic Storm Risk (G-Class)", "type": "string", "role": "indicator.text", "read": true, "write": false },
+      "native": {}
+    },
+
+
+
+    {
+      "_id": "earthquake",
+      "type": "channel",
+      "common": { "name": "Earthquake Data (USGS)" },
+      "native": {}
+    },
+    {
+      "_id": "earthquake.latest.magnitude",
+      "type": "state",
+      "common": { "name": "Latest Magnitude", "type": "number", "role": "value.warning", "unit": "M", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "earthquake.latest.place",
+      "type": "state",
+      "common": { "name": "Latest Location", "type": "string", "role": "text", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "earthquake.latest.time",
+      "type": "state",
+      "common": { "name": "Latest Timestamp", "type": "string", "role": "value.datetime", "read": true, "write": false },
+      "native": {}
+    },
+    {
+      "_id": "earthquake.latest.url",
+      "type": "state",
+      "common": { "name": "Latest Event URL", "type": "string", "role": "url", "read": true, "write": false },
       "native": {}
     }
   ]
