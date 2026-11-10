@@ -543,10 +543,9 @@ class SpaceWeatherAdapter extends utils.Adapter {
             }
         };
 
-        // --- 1. Kp-Index Data (Observation) ---
+// --- 1. Kp-Index Data (Observation) ---
         const kpUrls = [
-            "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json",
-            "https://services.swpc.noaa.gov/products/stations/kp-last-24-hours.json"
+            "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
         ];
         let kpData = null;
         for (const url of kpUrls) {
@@ -569,7 +568,7 @@ class SpaceWeatherAdapter extends utils.Adapter {
         }
 
         // --- 3. Plasma Data (V, N, T, Flow Angle) ---
-        const plasmaUrl = "https://services.swpc.noaa.gov/products/solar-wind/plasma-2-hour.json";
+        const plasmaUrl = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json";
         const plasmaData = await this.getLatestPlasmaData(plasmaUrl); 
         if (plasmaData) {
             fetchedValues.solarwind_speed = plasmaData.V;
@@ -580,7 +579,7 @@ class SpaceWeatherAdapter extends utils.Adapter {
         }
 
         // --- 4. Magnetic Field Data (Bx, By, Bz, Bt) ---
-        const magUrl = "https://services.swpc.noaa.gov/products/solar-wind/mag-2-hour.json";
+        const magUrl = "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json";
         const bzData = await this.getLatestValueFromFeed(magUrl, 3); // Index 3 is Bz
         if (bzData) {
             fetchedValues.magnetosphere_bz = bzData.value;
@@ -601,8 +600,7 @@ class SpaceWeatherAdapter extends utils.Adapter {
 
         // --- 6. F10.7 Radio Flux mit Fallback-Logik ---
         const f107Urls = [
-            "https://services.swpc.noaa.gov/products/10cm-flux-30-day.json",              
-            "https://services.swpc.noaa.gov/products/noaa-predicted-radio-flux.json" 
+            "https://services.swpc.noaa.gov/products/10cm-flux-30-day.json"
         ];
         let f107Data = null;
         for (const url of f107Urls) {
@@ -617,7 +615,7 @@ class SpaceWeatherAdapter extends utils.Adapter {
         // --- 7. Dst Index mit Fallback-Logik ---
         const dstUrls = [
             "https://services.swpc.noaa.gov/products/kyoto-dst.json",             
-            "https://services.swpc.noaa.gov/products/dst.json"                   
+            "https://services.swpc.noaa.gov/json/dst.json"                   
         ];
         let dstData = null;
         for (const url of dstUrls) {
