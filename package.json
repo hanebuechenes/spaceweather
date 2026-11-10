@@ -1,10 +1,10 @@
 {
   "name": "iobroker.spaceweather",
-  "version": "0.0.1",
-  "description": "ioBroker Adapter zur Anzeige von Solarwind- und Magnetfelddaten (NOAA)",
+  "version": "1.0.0",
+  "description": "ioBroker Adapter zur Anzeige von Solarwind-, Magnetfeld-, Kp-Index- und Erdbebendaten (NOAA/USGS)",
   "author": {
-    "name": "Herr Gott",
-    "email": "noreply@example.com"
+    "name": "Cyrano Etzler",
+    "email": "hanebuechenes@gmail.com"
   },
   "license": "MIT",
   "main": "main.js",
@@ -21,11 +21,12 @@
     "weather",
     "solarwind",
     "magnetosphere",
-    "noaa"
+    "noaa",
+    "usgs"
   ],
   "dependencies": {
-    "@iobroker/adapter-core": "^3.1.2",
-    "axios": "^1.7.4"
+    "@iobroker/adapter-core": "^3.1.6",
+    "axios": "^1.7.9"
   },
   "devDependencies": {
     "eslint": "^8.57.0"
